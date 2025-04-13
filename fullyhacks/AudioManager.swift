@@ -1,10 +1,3 @@
-//
-//  AudioManager.swift
-//  fullyhacks
-//
-//  Created by Yang Gao on 4/13/25.
-//
-
 import SwiftUI
 import AVFoundation
 import SocketIO
@@ -15,17 +8,14 @@ class AudioManager: NSObject, ObservableObject {
     @Published var isRecording = false
     @Published var transcription: String = ""
     @Published var isConnected = false
+    @Published var errorMessage: String?
     
     private var audioEngine: AVAudioEngine?
     private var audioRecorder: AVAudioRecorder?
     private var recordingURL: URL?
-    private var socketManager: SocketManager?
-    private var socket: SocketIOClient?
+    private var socket: SocketIOClient
     private var discussionID: String?
     private var audioChunkTimer: Timer?
-    
-    // Server configuration
-    private let serverURL = "http://localhost:8080" // Update with your actual server URL
     
     // Audio settings
     private let audioSettings: [String: Any] = [
@@ -36,6 +26,9 @@ class AudioManager: NSObject, ObservableObject {
     ]
     
     override init() {
+        // Use the shared socket helper
+        self.socket = SocketHelper.shared.socket
+        
         super.init()
         setupSocket()
     }
@@ -43,21 +36,37 @@ class AudioManager: NSObject, ObservableObject {
     // MARK: - Socket Setup
     
     private func setupSocket() {
-        socketManager = SocketManager(socketURL: URL(string: serverURL)!, config: [.log(true)])
-        socket = socketManager?.defaultSocket
-        
         // Set up socket event handlers
-        socket?.on(clientEvent: .connect) { [weak self] data, ack in
+        socket.on(clientEvent: .connect) { [weak self] data, ack in
             print("Socket connected")
-            self?.isConnected = true
+            DispatchQueue.main.async {
+                self?.isConnected = true
+                self?.errorMessage = nil
+            }
         }
         
-        socket?.on(clientEvent: .disconnect) { [weak self] data, ack in
+        socket.on(clientEvent: .disconnect) { [weak self] data, ack in
             print("Socket disconnected")
-            self?.isConnected = false
+            DispatchQueue.main.async {
+                self?.isConnected = false
+            }
         }
         
-        socket?.on("transcript_update") { [weak self] data, ack in
+        socket.on(clientEvent: .error) { [weak self] data, ack in
+            print("Socket error: \(data)")
+            DispatchQueue.main.async {
+                self?.errorMessage = "Socket error: \(data)"
+            }
+        }
+        
+//        socket.on(clientEvent: .connectError) { [weak self] data, ack in
+//            print("Socket connect error: \(data)")
+//            DispatchQueue.main.async {
+//                self?.errorMessage = "Connection error: \(data)"
+//            }
+//        }
+        
+        socket.on("transcript_update") { [weak self] data, ack in
             guard let self = self, let dataArray = data as? [[String: Any]], let first = dataArray.first else { return }
             
             if let transcriptText = first["text"] as? String {
@@ -68,24 +77,24 @@ class AudioManager: NSObject, ObservableObject {
             }
         }
         
-        socket?.on("error") { data, ack in
+        socket.on("error") { [weak self] data, ack in
             if let dataArray = data as? [[String: Any]], let first = dataArray.first, let message = first["message"] as? String {
                 print("Socket error: \(message)")
+                DispatchQueue.main.async {
+                    self?.errorMessage = message
+                }
             }
         }
         
         // Connect to socket
-        socket?.connect()
+        socket.connect()
     }
     
     // MARK: - Discussion Management
     
     /// Create a new discussion and joins the discussion room
     func createDiscussion(title: String = "New Discussion", completion: @escaping (Result<String, Error>) -> Void) {
-        guard let url = URL(string: "\(serverURL)/api/discussions") else {
-            completion(.failure(NSError(domain: "AudioManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])))
-            return
-        }
+        let url = SocketHelper.shared.serverURL.appendingPathComponent("/api/discussions")
         
         let parameters: [String: Any] = ["title": title]
         let jsonData = try? JSONSerialization.data(withJSONObject: parameters)
@@ -95,36 +104,65 @@ class AudioManager: NSObject, ObservableObject {
         request.httpBody = jsonData
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        print("Creating discussion at URL: \(url.absoluteString)")
+        
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
                 DispatchQueue.main.async {
+                    self?.errorMessage = "Request error: \(error.localizedDescription)"
                     completion(.failure(error))
                 }
                 return
             }
             
+            // Check HTTP status code
+            if let httpResponse = response as? HTTPURLResponse {
+                print("Server response code: \(httpResponse.statusCode)")
+                
+                if !(200...299).contains(httpResponse.statusCode) {
+                    let error = NSError(domain: "AudioManager", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Server returned error code: \(httpResponse.statusCode)"])
+                    DispatchQueue.main.async {
+                        self?.errorMessage = "HTTP Error: \(httpResponse.statusCode)"
+                        completion(.failure(error))
+                    }
+                    return
+                }
+            }
+            
             guard let data = data else {
+                let error = NSError(domain: "AudioManager", code: 2, userInfo: [NSLocalizedDescriptionKey: "No data received"])
                 DispatchQueue.main.async {
-                    completion(.failure(NSError(domain: "AudioManager", code: 2, userInfo: [NSLocalizedDescriptionKey: "No data received"])))
+                    self?.errorMessage = "No data received"
+                    completion(.failure(error))
                 }
                 return
+            }
+            
+            // Print response for debugging
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("Response data: \(responseString)")
             }
             
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let discussionID = json["discussion_id"] as? String {
                     DispatchQueue.main.async {
-                        self.discussionID = discussionID
-                        self.joinDiscussion(discussionID)
+                        self?.discussionID = discussionID
+                        self?.joinDiscussion(discussionID)
+                        self?.errorMessage = nil
                         completion(.success(discussionID))
                     }
                 } else {
+                    let error = NSError(domain: "AudioManager", code: 3, userInfo: [NSLocalizedDescriptionKey: "Invalid response format"])
                     DispatchQueue.main.async {
-                        completion(.failure(NSError(domain: "AudioManager", code: 3, userInfo: [NSLocalizedDescriptionKey: "Invalid response format"])))
+                        self?.errorMessage = "Invalid response format"
+                        completion(.failure(error))
                     }
                 }
             } catch {
+                print("JSON parsing error: \(error)")
                 DispatchQueue.main.async {
+                    self?.errorMessage = "Failed to parse response: \(error.localizedDescription)"
                     completion(.failure(error))
                 }
             }
@@ -134,7 +172,7 @@ class AudioManager: NSObject, ObservableObject {
     /// Join an existing discussion room via socket
     func joinDiscussion(_ discussionID: String) {
         self.discussionID = discussionID
-        socket?.emit("join_discussion", ["discussion_id": discussionID])
+        socket.emit("join_discussion", ["discussion_id": discussionID])
     }
     
     // MARK: - Audio Recording
@@ -143,13 +181,14 @@ class AudioManager: NSObject, ObservableObject {
     func startRecording() {
         // Create a new discussion if none exists
         if discussionID == nil {
-            createDiscussion { result in
+            createDiscussion { [weak self] result in
                 switch result {
                 case .success(let id):
                     print("Created discussion with ID: \(id)")
-                    self.checkPermissionAndRecord()
+                    self?.checkPermissionAndRecord()
                 case .failure(let error):
                     print("Failed to create discussion: \(error.localizedDescription)")
+                    // Error message is already set in the createDiscussion method
                 }
             }
         } else {
@@ -191,6 +230,7 @@ class AudioManager: NSObject, ObservableObject {
         case .granted:
             setupAudioRecording()
         case .denied:
+            errorMessage = "Microphone access denied"
             print("Microphone access denied")
         case .undetermined:
             AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
@@ -199,11 +239,15 @@ class AudioManager: NSObject, ObservableObject {
                         self?.setupAudioRecording()
                     }
                 } else {
+                    DispatchQueue.main.async {
+                        self?.errorMessage = "Microphone permission denied"
+                    }
                     print("Microphone permission denied")
                 }
             }
         @unknown default:
             print("Unknown microphone permission status")
+            errorMessage = "Unknown microphone permission status"
         }
     }
     
@@ -227,6 +271,7 @@ class AudioManager: NSObject, ObservableObject {
             isRecording = true
             
         } catch {
+            errorMessage = "Failed to set up recording: \(error.localizedDescription)"
             print("Failed to set up recording: \(error.localizedDescription)")
         }
     }
@@ -243,6 +288,7 @@ class AudioManager: NSObject, ObservableObject {
                 audioRecorder?.record()
             }
         } catch {
+            errorMessage = "Could not start audio recorder: \(error.localizedDescription)"
             print("Could not start audio recorder: \(error.localizedDescription)")
         }
     }
@@ -271,6 +317,7 @@ class AudioManager: NSObject, ObservableObject {
             try audioEngine.start()
             print("Audio engine started successfully")
         } catch {
+            errorMessage = "Failed to start audio engine: \(error.localizedDescription)"
             print("Failed to start audio engine: \(error.localizedDescription)")
         }
     }
@@ -330,7 +377,7 @@ class AudioManager: NSObject, ObservableObject {
         let base64Audio = data.base64EncodedString()
         
         // Emit audio_chunk event with audio data
-        socket?.emit("audio_chunk", [
+        socket.emit("audio_chunk", [
             "discussion_id": discussionID,
             "audio": base64Audio
         ])
@@ -340,10 +387,7 @@ class AudioManager: NSObject, ObservableObject {
     
     /// Send audio data to server using HTTP POST
     private func sendAudioChunkViaHTTP(data: Data, discussionID: String) {
-        guard let url = URL(string: "\(serverURL)/api/audio") else {
-            print("Invalid server URL")
-            return
-        }
+        let url = SocketHelper.shared.serverURL.appendingPathComponent("/api/audio")
         
         // Create request parameters
         let parameters: [String: Any] = [
@@ -390,12 +434,28 @@ class AudioManager: NSObject, ObservableObject {
             }
         } catch {
             print("Error reading audio file: \(error.localizedDescription)")
+            errorMessage = "Error reading audio file: \(error.localizedDescription)"
+        }
+    }
+    
+    // MARK: - Debugging Helpers
+    
+    func testConnection() {
+        SocketHelper.shared.testConnection { success, errorMessage in
+            DispatchQueue.main.async {
+                if success {
+                    self.errorMessage = nil
+                    print("Connection test successful")
+                } else {
+                    self.errorMessage = errorMessage ?? "Unknown connection error"
+                }
+            }
         }
     }
     
     deinit {
         stopRecording()
-        socket?.disconnect()
+        socket.disconnect()
     }
 }
 
@@ -410,6 +470,7 @@ extension AudioManager: AVAudioRecorderDelegate {
     func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
         if let error = error {
             print("Recording error: \(error.localizedDescription)")
+            errorMessage = "Recording error: \(error.localizedDescription)"
         }
     }
 }

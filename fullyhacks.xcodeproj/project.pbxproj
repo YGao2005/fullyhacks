@@ -39,9 +39,22 @@
 		2F0CA88E2DAA2F4F00AB75E5 /* fullyhacksUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = fullyhacksUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		2F0CA8EC2DABBEEC00AB75E5 /* Exceptions for "fullyhacks" folder in "fullyhacks" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 2F0CA8762DAA2F4D00AB75E5 /* fullyhacks */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		2F0CA8792DAA2F4D00AB75E5 /* fullyhacks */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				2F0CA8EC2DABBEEC00AB75E5 /* Exceptions for "fullyhacks" folder in "fullyhacks" target */,
+			);
 			path = fullyhacks;
 			sourceTree = "<group>";
 		};
@@ -431,12 +444,16 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = fullyhacks/fullyhacks.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = PBTJSSD9T5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "HarmonAI needs access to your microphone to record discussions";
+				INFOPLIST_FILE = fullyhacks/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "This app requires camera access for...";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs to access your local network for connecting to the transcription service.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app requires microphone access for audio recording.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "HarmonAI needs speech recognition to transcribe your voice";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -448,7 +465,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.yang.fullyhacks;
+				PRODUCT_BUNDLE_IDENTIFIER = com.fullyhacks.prod;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -461,12 +478,16 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = fullyhacks/fullyhacks.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = PBTJSSD9T5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "HarmonAI needs access to your microphone to record discussions";
+				INFOPLIST_FILE = fullyhacks/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "This app requires camera access for...";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs to access your local network for connecting to the transcription service.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app requires microphone access for audio recording.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "HarmonAI needs speech recognition to transcribe your voice";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -478,7 +499,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.yang.fullyhacks;
+				PRODUCT_BUNDLE_IDENTIFIER = com.fullyhacks.prod;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;

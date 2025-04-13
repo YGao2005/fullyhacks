@@ -2,6 +2,8 @@ import Foundation
 import SwiftUI
 import AVFoundation
 import SocketIO
+import Firebase
+import FirebaseFirestore
 
 class AudioTranscriptionService: ObservableObject {
     // Published properties for UI updates
@@ -17,10 +19,16 @@ class AudioTranscriptionService: ObservableObject {
     
     // Audio engine components
     private var audioEngine: AVAudioEngine?
-    private var audioBufferSize: UInt32 = 4096 // Adjust based on your needs
+    private var audioBufferSize: UInt32 = 4096
     
-    // Server URL - update this with your actual backend URL
-    private let serverUrl = "http://localhost:8000" // Changed from 5000 to 8000 as seen in your Python code
+    // Firebase reference
+    private let db = Firestore.firestore()
+    
+    // Server URL - your Heroku URL
+    private let serverUrl = "https://fullyhacks-dd63ad42c7dd.herokuapp.com"
+    
+    // Flag to track if session has been properly started
+    private var isSessionStarted = false
     
     init() {
         setupSocketIO()
@@ -42,10 +50,15 @@ class AudioTranscriptionService: ObservableObject {
         
         // Setup event listeners
         socket?.on(clientEvent: .connect) { [weak self] data, ack in
-            print("Socket connected")
+            print("Socket connected successfully")
             DispatchQueue.main.async {
                 self?.isConnected = true
                 self?.errorMessage = nil
+                
+                // If we already have a session ID, start the session now that we're connected
+                if let sessionId = self?.sessionId, !(self?.isSessionStarted ?? false) {
+                    self?.startSession(sessionId: sessionId)
+                }
             }
         }
         
@@ -53,6 +66,7 @@ class AudioTranscriptionService: ObservableObject {
             print("Socket disconnected")
             DispatchQueue.main.async {
                 self?.isConnected = false
+                self?.isSessionStarted = false // Reset session started flag
             }
         }
         
@@ -63,21 +77,26 @@ class AudioTranscriptionService: ObservableObject {
         socket?.on("session_started") { [weak self] data, ack in
             guard let dict = data[0] as? [String: Any],
                   let sessionId = dict["sessionId"] as? String else {
+                print("Invalid session_started data format: \(data)")
                 return
             }
-            print("Session started: \(sessionId)")
+            print("Session started successfully: \(sessionId)")
             DispatchQueue.main.async {
-                self?.sessionId = sessionId
-                self?.transcription = [] // Clear previous transcripts
+                self?.isSessionStarted = true
+                self?.errorMessage = nil
             }
         }
         
         socket?.on("transcription") { [weak self] data, ack in
+            print("Received transcription data: \(data)")
             guard let dict = data[0] as? [String: Any],
-                  let text = dict["text"] as? String,
-                  let timestamp = dict["timestamp"] as? TimeInterval else {
+                  let text = dict["text"] as? String else {
+                print("Invalid transcription data format: \(data)")
                 return
             }
+            
+            // Get timestamp (default to current time if missing)
+            let timestamp = (dict["timestamp"] as? TimeInterval) ?? Date().timeIntervalSince1970
             
             print("Received transcription: \(text)")
             let entry = TranscriptionEntry(text: text, timestamp: timestamp)
@@ -89,12 +108,18 @@ class AudioTranscriptionService: ObservableObject {
         socket?.on("error") { [weak self] data, ack in
             guard let dict = data[0] as? [String: Any],
                   let message = dict["message"] as? String else {
+                print("Invalid error data format: \(data)")
                 return
             }
             
             print("Received error: \(message)")
             DispatchQueue.main.async {
                 self?.errorMessage = message
+                
+                // If the error is about an invalid session, reset the session state
+                if message.contains("Invalid session ID") {
+                    self?.isSessionStarted = false
+                }
             }
         }
         
@@ -104,7 +129,8 @@ class AudioTranscriptionService: ObservableObject {
     
     // MARK: - Session Management
     
-    func createNewSession(userId: String = "anonymous", sessionName: String? = nil) {
+    // Create a new session via REST API
+    func createNewSession(userId: String = "anonymous", sessionName: String? = nil, completion: (() -> Void)? = nil) {
         let name = sessionName ?? "Session \(Date())"
         
         // Create a URLSession for the API call
@@ -122,6 +148,7 @@ class AudioTranscriptionService: ObservableObject {
             request.httpBody = try JSONSerialization.data(withJSONObject: params)
         } catch {
             self.errorMessage = "Failed to encode request: \(error.localizedDescription)"
+            completion?()
             return
         }
         
@@ -129,50 +156,82 @@ class AudioTranscriptionService: ObservableObject {
             if let error = error {
                 DispatchQueue.main.async {
                     self?.errorMessage = "Failed to create session: \(error.localizedDescription)"
+                    completion?()
                 }
                 return
             }
             
             // Check for HTTP errors
-            if let httpResponse = response as? HTTPURLResponse,
-               !(200...299).contains(httpResponse.statusCode) {
-                DispatchQueue.main.async {
-                    self?.errorMessage = "Server returned error code: \(httpResponse.statusCode)"
+            if let httpResponse = response as? HTTPURLResponse {
+                print("Session creation HTTP status: \(httpResponse.statusCode)")
+                
+                // Check if the status is not successful
+                if !(200...299).contains(httpResponse.statusCode) {
+                    DispatchQueue.main.async {
+                        self?.errorMessage = "Server returned error code: \(httpResponse.statusCode)"
+                        completion?()
+                    }
+                    return
                 }
-                return
             }
             
             guard let data = data else {
                 DispatchQueue.main.async {
                     self?.errorMessage = "No data received"
+                    completion?()
                 }
                 return
+            }
+            
+            // Log the raw response
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("Session creation response: \(responseString)")
             }
             
             do {
                 let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
                 
-                if let sessionId = json?["sessionId"] as? String {
-                    print("Created new session: \(sessionId)")
-                    
+                guard let sessionId = json?["sessionId"] as? String,
+                      let status = json?["status"] as? String,
+                      status == "success" else {
                     DispatchQueue.main.async {
-                        self?.sessionId = sessionId
-                        self?.errorMessage = nil
+                        self?.errorMessage = "Invalid response format or unsuccessful status"
+                        completion?()
+                    }
+                    return
+                }
+                
+                print("Created new session: \(sessionId)")
+                
+                DispatchQueue.main.async {
+                    self?.sessionId = sessionId
+                    self?.errorMessage = nil
+                    
+                    // Start the session if we're already connected
+                    if self?.isConnected == true {
+                        self?.startSession(sessionId: sessionId)
                     }
                     
-                    // Start the session via Socket.IO
-                    self?.socket?.emit("start_session", ["sessionId": sessionId])
-                } else {
-                    DispatchQueue.main.async {
-                        self?.errorMessage = "Invalid response format - missing sessionId"
-                    }
+                    completion?()
                 }
             } catch {
                 DispatchQueue.main.async {
                     self?.errorMessage = "Failed to parse response: \(error.localizedDescription)"
+                    completion?()
                 }
             }
         }.resume()
+    }
+    
+    // Start a session with Socket.IO
+    private func startSession(sessionId: String) {
+        print("Starting session with ID: \(sessionId)")
+        
+        // Start the session via Socket.IO
+        socket?.emit("start_session", ["sessionId": sessionId])
+        DispatchQueue.main.async {
+            self.isSessionStarted = true
+        }
     }
     
     func endSession() {
@@ -186,11 +245,14 @@ class AudioTranscriptionService: ObservableObject {
             stopRecording()
         }
         
+        print("Ending session: \(sessionId)")
+        
         // Emit end_session event
         socket?.emit("end_session", ["sessionId": sessionId])
         
         // Reset state
         self.sessionId = nil
+        self.isSessionStarted = false
         self.transcription = []
     }
     
@@ -206,6 +268,20 @@ class AudioTranscriptionService: ObservableObject {
             errorMessage = "Not connected to server. Please try again."
             return
         }
+        
+        // Make sure the session is started before recording
+        if !isSessionStarted {
+            print("Session not started yet, starting it now")
+            startSession(sessionId: sessionId)
+            
+            // Give a short delay to ensure session is started
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                self?.setupAudioRecording(sessionId: sessionId)
+            }
+            return
+        }
+        
+        print("Starting recording for session: \(sessionId)")
         
         // Check microphone permission
         AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
@@ -224,36 +300,57 @@ class AudioTranscriptionService: ObservableObject {
     
     private func setupAudioRecording(sessionId: String) {
         do {
+            // Set up audio session
             let audioSession = AVAudioSession.sharedInstance()
             try audioSession.setCategory(.playAndRecord, mode: .default)
             try audioSession.setActive(true)
             
+            // Create audio engine
             audioEngine = AVAudioEngine()
             guard let audioEngine = audioEngine else {
                 errorMessage = "Failed to create audio engine"
                 return
             }
             
+            // Get the input node
             let inputNode = audioEngine.inputNode
             
-            // Configure audio format for better transcription quality
-            // 16 kHz mono is ideal for speech recognition
-            let recordingFormat = AVAudioFormat(
-                commonFormat: .pcmFormatFloat32,
-                sampleRate: 16000,
-                channels: 1,
-                interleaved: false
-            )
+            // Important: Get the native format of the input node first
+            let nativeInputFormat = inputNode.inputFormat(forBus: 0)
+            print("Native input format: \(nativeInputFormat)")
+            
+            // Use the native sample rate but convert to single channel if needed
+            let processingFormat: AVAudioFormat
+            if nativeInputFormat.channelCount > 1 {
+                // Create a new format with the same sample rate but just 1 channel
+                processingFormat = AVAudioFormat(
+                    commonFormat: .pcmFormatFloat32,
+                    sampleRate: nativeInputFormat.sampleRate,
+                    channels: 1,
+                    interleaved: false
+                )!
+                print("Converting to mono format: \(processingFormat)")
+            } else {
+                // Use the native format directly
+                processingFormat = nativeInputFormat
+            }
             
             // Install a tap on the audio input
-            inputNode.installTap(onBus: 0, bufferSize: audioBufferSize, format: recordingFormat) { [weak self] (buffer, time) in
+            inputNode.installTap(onBus: 0, bufferSize: audioBufferSize, format: processingFormat) { [weak self] (buffer, time) in
                 // Convert buffer to data and send to the server
-                guard let audioData = self?.pcmBufferToData(buffer: buffer) else {
+                guard let audioData = self?.pcmBufferToData(buffer: buffer),
+                      let sessionId = self?.sessionId,
+                      let isStarted = self?.isSessionStarted, isStarted else {
+                    return
+                }
+                
+                // Check that we still have a valid session and connection
+                guard let self = self, self.isConnected else {
                     return
                 }
                 
                 // Send audio data to server
-                self?.socket?.emit("audio_data", [
+                self.socket?.emit("audio_data", [
                     "sessionId": sessionId,
                     "audio": audioData
                 ])
@@ -262,11 +359,13 @@ class AudioTranscriptionService: ObservableObject {
             // Start the audio engine
             audioEngine.prepare()
             try audioEngine.start()
+            print("Audio engine started successfully")
             
             isRecording = true
             
         } catch {
             errorMessage = "Error setting up audio: \(error.localizedDescription)"
+            print("Audio setup error: \(error)")
         }
     }
     
@@ -275,6 +374,7 @@ class AudioTranscriptionService: ObservableObject {
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         isRecording = false
+        print("Recording stopped")
     }
     
     // Helper method to convert PCM buffer to Data
@@ -292,6 +392,31 @@ class AudioTranscriptionService: ObservableObject {
         }
         
         return data
+    }
+    
+    // Test the server connection
+    func testServerConnection() {
+        guard let url = URL(string: "\(serverUrl)/health") else {
+            print("Invalid URL")
+            return
+        }
+        
+        print("Testing connection to: \(url.absoluteString)")
+        
+        URLSession.shared.dataTask(with: url) { data, response, error in
+            if let error = error {
+                print("Connection test failed: \(error.localizedDescription)")
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                print("Connection test status code: \(httpResponse.statusCode)")
+            }
+            
+            if let data = data, let message = String(data: data, encoding: .utf8) {
+                print("Connection test response: \(message)")
+            }
+        }.resume()
     }
     
     deinit {

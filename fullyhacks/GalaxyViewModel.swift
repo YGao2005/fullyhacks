@@ -10,7 +10,7 @@ class GalaxyViewModel: ObservableObject {
             galaxyRadius = min(screenSize.width, screenSize.height) * 0.4
         }
     }
-    private let starCount = 700  // Increased star count for better density
+    private let starCount = 300  // Increased star count for better density
     private var galaxyCenter: CGPoint
     private var galaxyRadius: CGFloat
     
