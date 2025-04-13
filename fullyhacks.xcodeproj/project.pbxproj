@@ -37,30 +37,9 @@
 		2F0CA88E2DAA2F4F00AB75E5 /* fullyhacksUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = fullyhacksUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		2F0CA8A82DAB118700AB75E5 /* Exceptions for "fullyhacks" folder in "fullyhacksTests" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				"GoogleService-Info.plist",
-			);
-			target = 2F0CA8832DAA2F4F00AB75E5 /* fullyhacksTests */;
-		};
-		2F0CA8A92DAB118700AB75E5 /* Exceptions for "fullyhacks" folder in "fullyhacksUITests" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				"GoogleService-Info.plist",
-			);
-			target = 2F0CA88D2DAA2F4F00AB75E5 /* fullyhacksUITests */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		2F0CA8792DAA2F4D00AB75E5 /* fullyhacks */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				2F0CA8A82DAB118700AB75E5 /* Exceptions for "fullyhacks" folder in "fullyhacksTests" target */,
-				2F0CA8A92DAB118700AB75E5 /* Exceptions for "fullyhacks" folder in "fullyhacksUITests" target */,
-			);
 			path = fullyhacks;
 			sourceTree = "<group>";
 		};
@@ -442,6 +421,8 @@
 				DEVELOPMENT_TEAM = PBTJSSD9T5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "HarmonAI needs access to your microphone to record discussions";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "HarmonAI needs speech recognition to transcribe your voice";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -470,6 +451,8 @@
 				DEVELOPMENT_TEAM = PBTJSSD9T5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "HarmonAI needs access to your microphone to record discussions";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "HarmonAI needs speech recognition to transcribe your voice";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

@@ -44,79 +44,6 @@ struct Star: Identifiable {
     }
 }
 
-class GalaxyViewModel: ObservableObject {
-    @Published var stars: [Star] = []
-    @Published var nebulaPhase: Double = 0.0
-    public var screenSize: CGRect = .zero
-    private let starCount = 500  // Increased star count for better density
-    private let galaxyCenter: CGPoint
-    private let galaxyRadius: CGFloat
-    
-    init(screenSize: CGRect) {
-        self.screenSize = screenSize
-        self.galaxyCenter = CGPoint(x: screenSize.width / 2, y: screenSize.height / 2)
-        self.galaxyRadius = min(screenSize.width, screenSize.height) * 0.4
-        
-        createStars()
-    }
-    
-    func createStars() {
-        stars = []
-        
-        for _ in 0..<starCount {
-            // Create stars following a spiral pattern
-            let angle = Double.random(in: 0...(2 * Double.pi))
-            let distance = Double.random(in: 0...Double(galaxyRadius))
-            let spiralFactor = Double.random(in: 0...6.0)
-            
-            let adjustedAngle = angle + (distance / Double(galaxyRadius)) * spiralFactor
-            
-            let x = galaxyCenter.x + CGFloat(cos(adjustedAngle) * distance)
-            let y = galaxyCenter.y + CGFloat(sin(adjustedAngle) * distance)
-            
-            if x >= 0 && x <= screenSize.width && y >= 0 && y <= screenSize.height {
-                var star = Star(in: screenSize)
-                star.position = CGPoint(x: x, y: y)
-                stars.append(star)
-            }
-        }
-    }
-    
-    func updateStars() {
-        // Animate stars to simulate rotation of the galaxy
-        for i in 0..<stars.count {
-            let starPosition = stars[i].position
-            
-            // Calculate vector from center
-            let dx = starPosition.x - galaxyCenter.x
-            let dy = starPosition.y - galaxyCenter.y
-            
-            // Calculate current angle and distance
-            let distance = sqrt(dx * dx + dy * dy)
-            var angle = atan2(dy, dx)
-            
-            // Rotate based on distance from center (inner stars rotate faster)
-            let rotationSpeed = 0.0008 / (distance / galaxyRadius + 0.1)  // Slightly slower rotation
-            angle += rotationSpeed
-            
-            // New position
-            let newX = galaxyCenter.x + cos(angle) * distance
-            let newY = galaxyCenter.y + sin(angle) * distance
-            
-            stars[i].position = CGPoint(x: newX, y: newY)
-            
-            // Twinkle effect - more subtle
-            stars[i].brightness = 0.3 + abs(sin(distance + Double(Date().timeIntervalSince1970) * stars[i].speed)) * 0.7
-        }
-        
-        // Update nebula animation - slower
-        nebulaPhase += 0.001
-        if nebulaPhase > 1.0 {
-            nebulaPhase = 0.0
-        }
-    }
-}
-
 struct StarView: View {
     let star: Star
     @State private var twinkle = false
@@ -174,11 +101,11 @@ struct NebulaView: View {
 }
 
 struct GalaxyEffectView: View {
-    @StateObject private var viewModel: GalaxyViewModel
+    @ObservedObject var viewModel: GalaxyViewModel
     private let timer = Timer.publish(every: 1/60, on: .main, in: .common).autoconnect()
     
-    init(screenSize: CGRect) {
-        _viewModel = StateObject(wrappedValue: GalaxyViewModel(screenSize: screenSize))
+    init(viewModel: GalaxyViewModel) {
+        self.viewModel = viewModel
     }
     
     var body: some View {
@@ -186,12 +113,13 @@ struct GalaxyEffectView: View {
             // Deep space background
             Color.black.edgesIgnoringSafeArea(.all)
             
-            // Nebula effect
+            // Nebula effect - fade out during transformation
             NebulaView(
                 phase: $viewModel.nebulaPhase,
                 center: CGPoint(x: viewModel.screenSize.width / 2, y: viewModel.screenSize.height / 2),
                 radius: min(viewModel.screenSize.width, viewModel.screenSize.height) * 0.4
             )
+            .opacity(viewModel.isTransforming ? 1.0 - viewModel.transformationProgress : 1.0)
             
             // Stars
             ForEach(viewModel.stars) { star in
@@ -205,17 +133,17 @@ struct GalaxyEffectView: View {
 }
 
 // Usage example
-struct ContentView: View {
-    var body: some View {
-        GeometryReader { geometry in
-            GalaxyEffectView(screenSize: geometry.frame(in: .global))
-        }
-    }
-}
+//struct ContentView: View {
+//    var body: some View {
+//        GeometryReader { geometry in
+//            GalaxyEffectView(screenSize: geometry.frame(in: .global))
+//        }
+//    }
+//}
 
 // Preview
-struct ContentView_Previews: PreviewProvider {
-    static var previews: some View {
-        ContentView()
-    }
-}
+//struct ContentView_Previews: PreviewProvider {
+//    static var previews: some View {
+//        ContentView()
+//    }
+//}
