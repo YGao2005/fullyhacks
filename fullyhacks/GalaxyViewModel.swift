@@ -214,7 +214,7 @@ class GalaxyViewModel: ObservableObject {
         
         // Handle completion
         if transformationProgress >= 1.0 {
-            print("Transformation complete")
+            //print("Transformation complete")
             // The transformation is complete, automatically start audio visualization
             startAudioVisualization()
         }

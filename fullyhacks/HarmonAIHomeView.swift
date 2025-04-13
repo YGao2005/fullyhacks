@@ -347,19 +347,12 @@ struct HarmonAIHomeView: View {
                 galaxyViewModel.updateAudioLevels(levels)
             }
         }
-        // Navigation to discussion view
+        // Navigation to discussion view - Updated to use our new TranscriptionView
         .fullScreenCover(isPresented: $showingDiscussionView) {
-            // Just return the view you want to show
-            Text("Discussion View")
-                .font(.largeTitle)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.black)
-                .foregroundColor(.white)
-                .onTapGesture {
-                    showingDiscussionView = false
-                }
+            // Present the TranscriptionView
+            TranscriptionView()
                 .onAppear {
-                    // Call stopRecording in onAppear instead
+                    // Stop recording on this view when showing TranscriptionView
                     stopRecording()
                 }
         }
@@ -377,6 +370,7 @@ struct HarmonAIHomeView: View {
         isRecording = false
     }
 }
+
 
 struct RecordingButton: View {
     @Binding var isRecording: Bool

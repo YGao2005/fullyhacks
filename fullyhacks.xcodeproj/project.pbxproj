@@ -12,6 +12,7 @@
 		2F0CA8B02DAB145D00AB75E5 /* FirebaseAnalyticsWithoutAdIdSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 2F0CA8AF2DAB145D00AB75E5 /* FirebaseAnalyticsWithoutAdIdSupport */; };
 		2F0CA8B22DAB145D00AB75E5 /* FirebaseAppCheck in Frameworks */ = {isa = PBXBuildFile; productRef = 2F0CA8B12DAB145D00AB75E5 /* FirebaseAppCheck */; };
 		2F0CA8B42DAB145D00AB75E5 /* FirebaseAppDistribution-Beta in Frameworks */ = {isa = PBXBuildFile; productRef = 2F0CA8B32DAB145D00AB75E5 /* FirebaseAppDistribution-Beta */; };
+		2F0CA8D12DAB921500AB75E5 /* SocketIO in Frameworks */ = {isa = PBXBuildFile; productRef = 2F0CA8D02DAB921500AB75E5 /* SocketIO */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -65,6 +66,7 @@
 				2F0CA8B42DAB145D00AB75E5 /* FirebaseAppDistribution-Beta in Frameworks */,
 				2F0CA8B02DAB145D00AB75E5 /* FirebaseAnalyticsWithoutAdIdSupport in Frameworks */,
 				2F0CA8AE2DAB145D00AB75E5 /* FirebaseAnalyticsOnDeviceConversion in Frameworks */,
+				2F0CA8D12DAB921500AB75E5 /* SocketIO in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -130,6 +132,7 @@
 				2F0CA8AF2DAB145D00AB75E5 /* FirebaseAnalyticsWithoutAdIdSupport */,
 				2F0CA8B12DAB145D00AB75E5 /* FirebaseAppCheck */,
 				2F0CA8B32DAB145D00AB75E5 /* FirebaseAppDistribution-Beta */,
+				2F0CA8D02DAB921500AB75E5 /* SocketIO */,
 			);
 			productName = fullyhacks;
 			productReference = 2F0CA8772DAA2F4D00AB75E5 /* fullyhacks.app */;
@@ -215,6 +218,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				2F0CA8AA2DAB145D00AB75E5 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				2F0CA8CF2DAB921500AB75E5 /* XCRemoteSwiftPackageReference "socket.io-client-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2F0CA8782DAA2F4D00AB75E5 /* Products */;
@@ -593,6 +597,14 @@
 				minimumVersion = 11.11.0;
 			};
 		};
+		2F0CA8CF2DAB921500AB75E5 /* XCRemoteSwiftPackageReference "socket.io-client-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/socketio/socket.io-client-swift.git";
+			requirement = {
+				branch = master;
+				kind = branch;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -620,6 +632,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 2F0CA8AA2DAB145D00AB75E5 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = "FirebaseAppDistribution-Beta";
+		};
+		2F0CA8D02DAB921500AB75E5 /* SocketIO */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2F0CA8CF2DAB921500AB75E5 /* XCRemoteSwiftPackageReference "socket.io-client-swift" */;
+			productName = SocketIO;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
