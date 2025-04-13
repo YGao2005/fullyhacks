@@ -19,8 +19,8 @@ class AudioTranscriptionService: ObservableObject {
     private var audioEngine: AVAudioEngine?
     private var audioBufferSize: UInt32 = 4096 // Adjust based on your needs
     
-    // Server URL - update this with your Flask backend URL
-    private let serverUrl = "http://localhost:5000"
+    // Server URL - update this with your actual backend URL
+    private let serverUrl = "http://localhost:8000" // Changed from 5000 to 8000 as seen in your Python code
     
     init() {
         setupSocketIO()
@@ -29,18 +29,31 @@ class AudioTranscriptionService: ObservableObject {
     // MARK: - Socket.IO Setup
     
     private func setupSocketIO() {
-        manager = SocketManager(socketURL: URL(string: serverUrl)!, config: [.log(true), .compress])
+        // Configure Socket.IO manager with proper options
+        manager = SocketManager(socketURL: URL(string: serverUrl)!, config: [
+            .log(true),
+            .compress,
+            .reconnects(true),
+            .reconnectAttempts(5),
+            .reconnectWait(3000)
+        ])
+        
         socket = manager?.defaultSocket
         
         // Setup event listeners
         socket?.on(clientEvent: .connect) { [weak self] data, ack in
             print("Socket connected")
-            self?.isConnected = true
+            DispatchQueue.main.async {
+                self?.isConnected = true
+                self?.errorMessage = nil
+            }
         }
         
         socket?.on(clientEvent: .disconnect) { [weak self] data, ack in
             print("Socket disconnected")
-            self?.isConnected = false
+            DispatchQueue.main.async {
+                self?.isConnected = false
+            }
         }
         
         socket?.on("connection_response") { [weak self] data, ack in
@@ -53,7 +66,10 @@ class AudioTranscriptionService: ObservableObject {
                 return
             }
             print("Session started: \(sessionId)")
-            self?.sessionId = sessionId
+            DispatchQueue.main.async {
+                self?.sessionId = sessionId
+                self?.transcription = [] // Clear previous transcripts
+            }
         }
         
         socket?.on("transcription") { [weak self] data, ack in
@@ -63,6 +79,7 @@ class AudioTranscriptionService: ObservableObject {
                 return
             }
             
+            print("Received transcription: \(text)")
             let entry = TranscriptionEntry(text: text, timestamp: timestamp)
             DispatchQueue.main.async {
                 self?.transcription.append(entry)
@@ -75,6 +92,7 @@ class AudioTranscriptionService: ObservableObject {
                 return
             }
             
+            print("Received error: \(message)")
             DispatchQueue.main.async {
                 self?.errorMessage = message
             }
@@ -100,12 +118,26 @@ class AudioTranscriptionService: ObservableObject {
             "sessionName": name
         ]
         
-        request.httpBody = try? JSONSerialization.data(withJSONObject: params)
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: params)
+        } catch {
+            self.errorMessage = "Failed to encode request: \(error.localizedDescription)"
+            return
+        }
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
                 DispatchQueue.main.async {
                     self?.errorMessage = "Failed to create session: \(error.localizedDescription)"
+                }
+                return
+            }
+            
+            // Check for HTTP errors
+            if let httpResponse = response as? HTTPURLResponse,
+               !(200...299).contains(httpResponse.statusCode) {
+                DispatchQueue.main.async {
+                    self?.errorMessage = "Server returned error code: \(httpResponse.statusCode)"
                 }
                 return
             }
@@ -118,17 +150,21 @@ class AudioTranscriptionService: ObservableObject {
             }
             
             do {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let sessionId = json["sessionId"] as? String {
+                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                
+                if let sessionId = json?["sessionId"] as? String {
+                    print("Created new session: \(sessionId)")
+                    
                     DispatchQueue.main.async {
                         self?.sessionId = sessionId
+                        self?.errorMessage = nil
                     }
                     
                     // Start the session via Socket.IO
                     self?.socket?.emit("start_session", ["sessionId": sessionId])
                 } else {
                     DispatchQueue.main.async {
-                        self?.errorMessage = "Invalid response format"
+                        self?.errorMessage = "Invalid response format - missing sessionId"
                     }
                 }
             } catch {
@@ -145,18 +181,29 @@ class AudioTranscriptionService: ObservableObject {
             return
         }
         
+        // Stop recording if it's active
+        if isRecording {
+            stopRecording()
+        }
+        
+        // Emit end_session event
         socket?.emit("end_session", ["sessionId": sessionId])
-        stopRecording()
+        
+        // Reset state
         self.sessionId = nil
         self.transcription = []
     }
     
     // MARK: - Audio Recording and Streaming
     
-    // Start recording audio
     func startRecording() {
         guard let sessionId = sessionId else {
-            errorMessage = "No active session"
+            errorMessage = "No active session. Please create a session first."
+            return
+        }
+        
+        guard isConnected else {
+            errorMessage = "Not connected to server. Please try again."
             return
         }
         
@@ -201,11 +248,14 @@ class AudioTranscriptionService: ObservableObject {
             // Install a tap on the audio input
             inputNode.installTap(onBus: 0, bufferSize: audioBufferSize, format: recordingFormat) { [weak self] (buffer, time) in
                 // Convert buffer to data and send to the server
-                let audioData = self?.pcmBufferToData(buffer: buffer)
+                guard let audioData = self?.pcmBufferToData(buffer: buffer) else {
+                    return
+                }
                 
+                // Send audio data to server
                 self?.socket?.emit("audio_data", [
                     "sessionId": sessionId,
-                    "audio": audioData ?? Data()
+                    "audio": audioData
                 ])
             }
             
@@ -221,6 +271,7 @@ class AudioTranscriptionService: ObservableObject {
     }
     
     func stopRecording() {
+        // Stop the audio engine if it's running
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         isRecording = false
@@ -246,16 +297,5 @@ class AudioTranscriptionService: ObservableObject {
     deinit {
         stopRecording()
         socket?.disconnect()
-    }
-}
-
-// MARK: - Data Models
-
-struct TranscriptionEntry: Identifiable, Hashable {
-    let id = UUID()
-    let text: String
-    let timestamp: TimeInterval
-    var date: Date {
-        return Date(timeIntervalSince1970: timestamp)
     }
 }

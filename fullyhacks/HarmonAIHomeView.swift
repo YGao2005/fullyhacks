@@ -249,14 +249,23 @@ struct HarmonAISubtitleView: View {
     }
 }
 
+import SwiftUI
+import Combine
+
 struct HarmonAIHomeView: View {
     // Create the ViewModels at the top level of the view hierarchy
     @StateObject private var galaxyViewModel: GalaxyViewModel
     @StateObject private var audioManager = AudioManager()
     
+    // Add the transcription service
+    @StateObject private var transcriptionService = AudioTranscriptionService()
+    
     // Track the app state
     @State private var isRecording = false
     @State private var showingDiscussionView = false
+    
+    // For displaying the latest transcription
+    @State private var latestTranscription: String = ""
     
     init() {
         // Initialize with a dummy size that will be updated in GeometryReader
@@ -306,6 +315,10 @@ struct HarmonAIHomeView: View {
                 
                 // Dynamic button based on state
                 if galaxyViewModel.isVisualizingAudio {
+                    // Transcription area
+                    TranscriptionBubbleView(text: latestTranscription)
+                        .padding(.bottom, 20)
+                    
                     // Show the recording button when visualizing audio
                     RecordingButton(isRecording: $isRecording) {
                         if isRecording {
@@ -327,6 +340,8 @@ struct HarmonAIHomeView: View {
                     VStack(spacing: 25) {
                         MainNeonButton(title: "New Discussion") {
                             print("Create button tapped")
+                            // Create a new session before visualization
+                            transcriptionService.createNewSession()
                             // Trigger the galaxy transformation
                             galaxyViewModel.startTransformation()
                         }
@@ -347,10 +362,23 @@ struct HarmonAIHomeView: View {
                 galaxyViewModel.updateAudioLevels(levels)
             }
         }
+        // Update the latest transcription when new entries come in
+        .onReceive(transcriptionService.$transcription) { transcription in
+            if let latestEntry = transcription.last {
+                latestTranscription = latestEntry.text
+            }
+        }
+        // Display error messages from the transcription service
+        .onReceive(transcriptionService.$errorMessage) { errorMessage in
+            if let error = errorMessage {
+                print("Transcription error: \(error)")
+                // You could show an alert here if needed
+            }
+        }
         // Navigation to discussion view - Updated to use our new TranscriptionView
         .fullScreenCover(isPresented: $showingDiscussionView) {
-            // Present the TranscriptionView
-            TranscriptionView()
+            // Present the TranscriptionView with the current session ID
+            TranscriptionView(sessionId: transcriptionService.sessionId ?? "")
                 .onAppear {
                     // Stop recording on this view when showing TranscriptionView
                     stopRecording()
@@ -360,17 +388,99 @@ struct HarmonAIHomeView: View {
     
     // Start recording audio
     private func startRecording() {
+        // Start the transcription service recording
+        transcriptionService.startRecording()
+        // Also start the audio manager for visualization
         audioManager.startRecording()
         isRecording = true
     }
     
     // Stop recording audio
     private func stopRecording() {
+        // Stop the transcription service
+        transcriptionService.stopRecording()
+        // Stop the audio manager
         audioManager.stopRecording()
         isRecording = false
     }
 }
 
+// Add a new view for displaying the transcription
+struct TranscriptionBubbleView: View {
+    var text: String
+    
+    @State private var glowIntensity: CGFloat = 0.4
+    
+    var body: some View {
+        ZStack {
+            // If there's no text, display a placeholder
+            if text.isEmpty {
+                Text("Speak to begin recording...")
+                    .font(.system(size: 18, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.6))
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 15)
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.black.opacity(0.3))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                            )
+                    )
+                    .padding(.horizontal, 30)
+            } else {
+                // Otherwise, display the transcription
+                Text(text)
+                    .font(.system(size: 18, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.9))
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 15)
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color(red: 0.1, green: 0.1, blue: 0.3).opacity(0.7),
+                                        Color.black.opacity(0.6)
+                                    ]),
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [
+                                                Color.blue.opacity(0.7),
+                                                Color.purple.opacity(0.5)
+                                            ]),
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        ),
+                                        lineWidth: 1.5
+                                    )
+                            )
+                            .shadow(
+                                color: Color.blue.opacity(glowIntensity),
+                                radius: 8,
+                                x: 0,
+                                y: 0
+                            )
+                    )
+                    .padding(.horizontal, 30)
+            }
+        }
+        .onAppear {
+            withAnimation(Animation.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
+                glowIntensity = 0.6
+            }
+        }
+    }
+}
 
 struct RecordingButton: View {
     @Binding var isRecording: Bool

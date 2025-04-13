@@ -1,3 +1,10 @@
+//
+//  AudioManager.swift
+//  fullyhacks
+//
+//  Created by Yang Gao on 4/13/25.
+//
+
 import SwiftUI
 import AVFoundation
 import SocketIO
