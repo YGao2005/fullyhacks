@@ -18,9 +18,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 //      
     FirebaseApp.configure()
       
-//      let settings = FirestoreSettings()
-//      settings.appCheckEnabled = false
-//      Firestore.firestore().settings = settings
+//      if let appCheck = AppCheck.appCheck() {
+//          let providerFactory = AppCheckDebugProviderFactory()
+//          appCheck.setAppCheckProviderFactory(providerFactory)
+//      }
 
 
     return true

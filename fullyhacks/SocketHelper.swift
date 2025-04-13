@@ -7,9 +7,10 @@ class SocketHelper {
     
     // MARK: - Configuration
     #if targetEnvironment(simulator)
-    private let serverHost = "localhost"
+    private let serverHost = "192.168.1.166:5555"
     #else
     // Use your actual computer's IP address when running on a device
+    //private let serverHost = "192.168.1.166:5555"
     private let serverHost = "fullyhacks-dd63ad42c7dd.herokuapp.com"
     #endif
     
