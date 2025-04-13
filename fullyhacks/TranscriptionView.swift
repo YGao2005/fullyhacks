@@ -6,6 +6,7 @@ import FirebaseFirestore
 struct TranscriptionEntryView: View {
     var entry: TranscriptionEntry
     
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(entry.text)
@@ -32,13 +33,15 @@ struct TranscriptionEntryView: View {
 // View model for the transcription view
 class TranscriptionViewModel: ObservableObject {
     @Published var transcriptionEntries: [TranscriptionEntry] = []
-    @Published var sessionName: String = "Discussion"
+    @Published var sessionName: String = "Hackathon Session"
     @Published var startTime: Date?
     @Published var isLoading = true
-    @Published var isPlaying = false
+    @Published var isSessionActive = false
     @Published var showingSummary = false
     @Published var summaryText = ""
     @Published var errorMessage: String?
+    @Published var isSummaryPopupVisible = false
+     @Published var isSummaryLoading = false
     
     private let sessionId: String
     private let db = Firestore.firestore()
@@ -47,6 +50,65 @@ class TranscriptionViewModel: ObservableObject {
     init(sessionId: String) {
         self.sessionId = sessionId
     }
+    
+    func generateSummary() {
+            isSummaryLoading = true
+            isSummaryPopupVisible = true
+            
+            // Create the URL for our API endpoint
+            guard let url = URL(string: "http://172.20.10.14:5555/api/generate-summary") else {
+                self.errorMessage = "Invalid URL"
+                self.isSummaryLoading = false
+                return
+            }
+            
+            // Create the request
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+            
+            // Create the request body
+            let body: [String: Any] = ["sessionId": sessionId]
+            
+            do {
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            } catch {
+                self.errorMessage = "Error creating request: \(error.localizedDescription)"
+                self.isSummaryLoading = false
+                return
+            }
+            
+            // Make the request
+            URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+                guard let self = self else { return }
+                
+                DispatchQueue.main.async {
+                    self.isSummaryLoading = false
+                    
+                    if let error = error {
+                        self.errorMessage = "Network error: \(error.localizedDescription)"
+                        return
+                    }
+                    
+                    guard let data = data else {
+                        self.errorMessage = "No data received"
+                        return
+                    }
+                    
+                    do {
+                        if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                           let summary = json["summary"] as? String {
+                            self.summaryText = summary
+                        } else {
+                            self.errorMessage = "Invalid response format"
+                        }
+                    } catch {
+                        self.errorMessage = "Error parsing response: \(error.localizedDescription)"
+                    }
+                }
+            }.resume()
+        }
+
     
     var formattedStartTime: String {
         guard let startTime = startTime else {
@@ -60,11 +122,6 @@ class TranscriptionViewModel: ObservableObject {
     }
     
     func loadData() {
-        guard !sessionId.isEmpty else {
-            isLoading = false
-            return
-        }
-        
         // First do a one-time fetch to get initial data
         fetchData()
         
@@ -103,6 +160,10 @@ class TranscriptionViewModel: ObservableObject {
                     self.startTime = startTimeTimestamp.dateValue()
                 }
                 
+                if let isActive = data["isActive"] as? Bool {
+                    self.isSessionActive = isActive
+                }
+                
                 // Parse transcription entries
                 self.parseTranscriptionData(data)
             }
@@ -128,6 +189,13 @@ class TranscriptionViewModel: ObservableObject {
                 guard let document = documentSnapshot,
                       let data = document.data() else {
                     return
+                }
+                
+                // Update the session active state
+                if let isActive = data["isActive"] as? Bool {
+                    DispatchQueue.main.async {
+                        self.isSessionActive = isActive
+                    }
                 }
                 
                 // Parse and update the transcription entries
@@ -157,46 +225,20 @@ class TranscriptionViewModel: ObservableObject {
         }
     }
     
-    func togglePlayback() {
-        // This would integrate with audio playback
-        // For now just toggle the state
-        isPlaying.toggle()
+    func endSession() {
+        let socket = SocketHelper.shared.socket
+        socket.emit("end_session")
         
-        // In a real implementation, you would:
-        // 1. Have access to the original audio recording
-        // 2. Play it back from the current position or start
-    }
-    
-    func generateSummary() {
-        // This would ideally call an AI service to generate a summary
-        // For now, just create a simple placeholder summary
-        
-        let allText = transcriptionEntries.map { $0.text }.joined(separator: " ")
-        let words = allText.split(separator: " ")
-        
-        if words.count > 10 {
-            // Simple summary - first sentence + length info
-            var firstSentence = ""
-            if let sentenceEnd = allText.firstIndex(of: ".") {
-                firstSentence = String(allText[allText.startIndex...sentenceEnd])
-            } else {
-                // If no period found, just take first 100 characters
-                let endIndex = min(allText.count, 100)
-                firstSentence = String(allText.prefix(endIndex))
+        // Update Firebase (our backend will do this too, but doing it locally for UI responsiveness)
+        let docRef = db.collection("discussions").document(sessionId)
+        docRef.updateData([
+            "isActive": false,
+            "endTime": FieldValue.serverTimestamp()
+        ]) { error in
+            if let error = error {
+                print("Error updating document: \(error)")
             }
-            
-            summaryText = """
-            Summary of discussion:
-            
-            \(firstSentence)
-            
-            This discussion contained \(transcriptionEntries.count) segments with a total of \(words.count) words.
-            """
-        } else {
-            summaryText = "This discussion is too short to generate a meaningful summary."
         }
-        
-        showingSummary = true
     }
     
     func shareTranscription() {
@@ -261,6 +303,7 @@ struct TranscriptionView: View {
     
     @Environment(\.presentationMode) var presentationMode
     @StateObject private var viewModel: TranscriptionViewModel
+    @State private var showingEndSessionAlert = false
     
     init(sessionId: String) {
         self.sessionId = sessionId
@@ -278,7 +321,12 @@ struct TranscriptionView: View {
                 // Header
                 HStack {
                     Button(action: {
-                        presentationMode.wrappedValue.dismiss()
+                        if viewModel.isSessionActive {
+                            // Ask for confirmation before closing an active session
+                            showingEndSessionAlert = true
+                        } else {
+                            presentationMode.wrappedValue.dismiss()
+                        }
                     }) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 20, weight: .bold))
@@ -292,6 +340,31 @@ struct TranscriptionView: View {
                                             .stroke(Color.blue.opacity(0.5), lineWidth: 1)
                                     )
                             )
+                    }
+                    
+                    Spacer()
+                    
+                    // Session status indicator
+                    if viewModel.isSessionActive {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(Color.green)
+                                .frame(width: 8, height: 8)
+                            
+                            Text("Live")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.green)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(Color.green.opacity(0.2))
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color.green.opacity(0.3), lineWidth: 1)
+                                )
+                        )
                     }
                 }
                 .padding(.horizontal, 16)
@@ -311,6 +384,24 @@ struct TranscriptionView: View {
                     }
                     
                     Spacer()
+                    
+                    // Share button
+                    Button(action: {
+                        viewModel.shareTranscription()
+                    }) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 18))
+                            .foregroundColor(.white)
+                            .padding(10)
+                            .background(
+                                Circle()
+                                    .fill(Color.blue.opacity(0.2))
+                                    .overlay(
+                                        Circle()
+                                            .stroke(Color.blue.opacity(0.4), lineWidth: 1)
+                                    )
+                            )
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 16)
@@ -378,31 +469,38 @@ struct TranscriptionView: View {
                 
                 // Bottom control area
                 HStack(spacing: 16) {
-                    Button(action: {
-                        viewModel.togglePlayback()
-                    }) {
-                        Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(14)
-                            .background(
-                                Circle()
-                                    .fill(Color.blue.opacity(0.2))
-                                    .overlay(
-                                        Circle()
-                                            .stroke(Color.blue.opacity(0.5), lineWidth: 1)
-                                    )
-                            )
+                    // End session button
+                    if viewModel.isSessionActive {
+                        Button(action: {
+                            showingEndSessionAlert = true
+                        }) {
+                            Text("End Session")
+                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                .foregroundColor(.white)
+                                .padding(.vertical, 12)
+                                .padding(.horizontal, 20)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.red.opacity(0.3))
+                                        .overlay(
+                                            Capsule()
+                                                .stroke(Color.red.opacity(0.5), lineWidth: 1)
+                                        )
+                                )
+                        }
                     }
                     
+                    Spacer()
+                    
+                    // Generate summary button
                     Button(action: {
                         viewModel.generateSummary()
                     }) {
                         Text("Generate Summary")
-                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
                             .foregroundColor(.white)
-                            .padding(.vertical, 14)
-                            .padding(.horizontal, 32)
+                            .padding(.vertical, 12)
+                            .padding(.horizontal, 20)
                             .background(
                                 Capsule()
                                     .fill(
@@ -418,18 +516,47 @@ struct TranscriptionView: View {
                             )
                     }
                 }
-                .padding(.vertical, 18)
+                .padding(.vertical, 16)
+                .padding(.horizontal, 20)
                 .background(Color.black.opacity(0.7))
+            }
+            
+            // Summary Popup
+            if viewModel.isSummaryPopupVisible {
+                Color.black.opacity(0.4)
+                    .edgesIgnoringSafeArea(.all)
+                    .onTapGesture {
+                        // Optional: close on background tap
+                        // viewModel.isSummaryPopupVisible = false
+                    }
+                
+                SummaryPopupView(
+                    summary: viewModel.summaryText,
+                    isLoading: viewModel.isSummaryLoading,
+                    onDismiss: {
+                        viewModel.isSummaryPopupVisible = false
+                    }
+                )
+                .transition(.scale(scale: 0.85).combined(with: .opacity))
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.isSummaryPopupVisible)
             }
         }
         .onAppear {
             viewModel.loadData()
         }
-        .alert(isPresented: $viewModel.showingSummary) {
+        .alert(isPresented: $showingEndSessionAlert) {
             Alert(
-                title: Text("Discussion Summary"),
-                message: Text(viewModel.summaryText),
-                dismissButton: .default(Text("OK"))
+                title: Text("End Session"),
+                message: Text("Are you sure you want to end this session? This will stop the transcription."),
+                primaryButton: .destructive(Text("End Session")) {
+                    viewModel.endSession()
+                    
+                    // Wait a moment for Firebase to update
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                },
+                secondaryButton: .cancel()
             )
         }
     }

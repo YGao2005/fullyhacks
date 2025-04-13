@@ -10,7 +10,7 @@ class GalaxyViewModel: ObservableObject {
             galaxyRadius = min(screenSize.width, screenSize.height) * 0.4
         }
     }
-    private let starCount = 300  // Increased star count for better density
+    private let starCount = 400  // Increased star count for better density
     private var galaxyCenter: CGPoint
     private var galaxyRadius: CGFloat
     
@@ -27,11 +27,16 @@ class GalaxyViewModel: ObservableObject {
     @Published var audioLevels: [Float] = []
     private var audioMultiplier: CGFloat = 150.0 // Control the height of the visualization
     
+    // Add a smoothing factor to make visualization less jittery
+    private var smoothingFactor: Float = 0.3 // 0.0 = no smoothing, 1.0 = maximum smoothing
+    private var previousAudioLevels: [Float] = []
+    
     init(screenSize: CGRect) {
         self.screenSize = screenSize
         self.galaxyCenter = CGPoint(x: screenSize.width / 2, y: screenSize.height / 2)
         self.galaxyRadius = min(screenSize.width, screenSize.height) * 0.4
         self.audioLevels = Array(repeating: 0, count: 100)
+        self.previousAudioLevels = Array(repeating: 0, count: 100)
         
         createStars()
     }
@@ -45,9 +50,29 @@ class GalaxyViewModel: ObservableObject {
         rotationSpeed = 0.005
     }
     
-    // Update audio levels from the AudioManager
+    // Update audio levels with smoothing for better visualization
     func updateAudioLevels(_ levels: [Float]) {
-        self.audioLevels = levels
+        // Apply smoothing between previous and current levels
+        var smoothedLevels: [Float] = []
+        
+        // If sizes don't match, just use the new levels
+        if previousAudioLevels.count != levels.count {
+            previousAudioLevels = levels
+            self.audioLevels = levels
+            return
+        }
+        
+        // Apply smoothing
+        for i in 0..<levels.count {
+            let smoothedValue = previousAudioLevels[i] * smoothingFactor + levels[i] * (1 - smoothingFactor)
+            smoothedLevels.append(smoothedValue)
+        }
+        
+        // Store for next update
+        previousAudioLevels = smoothedLevels
+        
+        // Update the audioLevels property which triggers view updates
+        self.audioLevels = smoothedLevels
     }
     
     // Start audio visualization after transformation is complete
@@ -87,9 +112,11 @@ class GalaxyViewModel: ObservableObject {
             
             // Adjust brightness based on mode
             if isVisualizingAudio {
-                // Make stars pulse with the audio
+                // Make stars pulse with the audio with a base minimum brightness
                 let audioIndex = min(Int(Double(i) / Double(stars.count) * Double(audioLevels.count)), audioLevels.count - 1)
-                stars[i].brightness = max(0.3, Double(audioLevels[audioIndex]))
+                let baseBrightness: Double = 0.3
+                let pulseBrightness = Double(audioLevels[audioIndex])
+                stars[i].brightness = baseBrightness + pulseBrightness * 0.7
             } else if isTransforming {
                 // Transformation effect
                 stars[i].brightness = 0.3 + abs(sin(Double(i) + transformationProgress * 20)) * 0.7
@@ -106,13 +133,15 @@ class GalaxyViewModel: ObservableObject {
         }
     }
     
-    // Update star positions for audio visualization
+    // Update star positions for audio visualization with improved effect
     private func updateStarForAudioVisualization(_ index: Int) {
+        // Make the audio visualization more responsive and visually appealing
         // Calculate which audio index corresponds to this star
         let audioIndex = min(Int(Double(index) / Double(stars.count) * Double(audioLevels.count)), audioLevels.count - 1)
         
-        // Get the audio level for this star
-        let audioLevel = CGFloat(audioLevels[audioIndex])
+        // Get the audio level for this star with some extra emphasis
+        let rawAudioLevel = CGFloat(audioLevels[audioIndex])
+        let enhancedAudioLevel = rawAudioLevel * 1.2  // Emphasize the movement
         
         // Calculate the target x position (evenly distributed across screen)
         let spreadWidth = screenSize.width * 0.8
@@ -120,16 +149,23 @@ class GalaxyViewModel: ObservableObject {
         
         // Calculate the y position based on audio level
         let baseY = galaxyCenter.y
-        let offset = audioLevel * audioMultiplier
+        let offset = enhancedAudioLevel * audioMultiplier
         
-        // Add some randomness for a more organic look
-        let randomFactor = CGFloat.random(in: 0.8...1.2)
+        // Add some randomness for a more organic look but keep it consistent for each star
+        // Use the star's id to generate consistent randomness
+        let randomSeed = CGFloat(abs(sin(Double(index) * 123.456)))
+        let randomFactor = 0.9 + randomSeed * 0.3 // Range: 0.9-1.2
         
         // Update the star position
         stars[index].position = CGPoint(
             x: xPosition,
             y: baseY - (offset * randomFactor)
         )
+        
+        // Add subtle x-axis variation based on audio
+        if rawAudioLevel > 0.2 {
+            stars[index].position.x += CGFloat(sin(Double(index) + Double(Date().timeIntervalSince1970) * 5)) * 2.0
+        }
     }
     
     // Update star during the transformation phase
@@ -214,7 +250,6 @@ class GalaxyViewModel: ObservableObject {
         
         // Handle completion
         if transformationProgress >= 1.0 {
-            //print("Transformation complete")
             // The transformation is complete, automatically start audio visualization
             startAudioVisualization()
         }

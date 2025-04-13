@@ -7,18 +7,21 @@ class SocketHelper {
     
     // MARK: - Configuration
     #if targetEnvironment(simulator)
-    private let serverHost = "192.168.1.166:5555"
+    private let serverHost = "localhost"
     #else
-    // Use your actual computer's IP address when running on a device
-    //private let serverHost = "192.168.1.166:5555"
-    private let serverHost = "fullyhacks-dd63ad42c7dd.herokuapp.com"
+    // Change this to your actual server IP or hostname when running on a device
+    private let serverHost = "172.20.10.14:5555"
     #endif
     
     private let serverPort = 5555
     
     // Full server URL constructed from host and port
     var serverURL: URL {
-        return URL(string: "https://\(serverHost)")!
+        #if targetEnvironment(simulator)
+        return URL(string: "http://\(serverHost):\(serverPort)")!
+        #else
+        return URL(string: "http://\(serverHost)")!
+        #endif
     }
     
     // MARK: - Socket Manager
@@ -42,13 +45,12 @@ class SocketHelper {
             .log(true),
             .compress,
             .reconnects(true),
-            .reconnectAttempts(5),
-            .reconnectWait(3000),
-            .forceWebsockets(true),       // Force WebSockets instead of polling
-            .connectParams(["transport": "websocket"]),
+            .reconnectAttempts(10),
+            .reconnectWait(2000),
+            .connectParams(["transport": "polling"]), // Start with polling, more reliable initially
             .extraHeaders(["Accept": "application/json"]),
-            .selfSigned(true),            // Allow self-signed certificates
-            .secure(true)                 // Use secure connection
+            .selfSigned(true),            // Allow self-signed certificates for development
+            //.secure(true)                 // Use secure connection
         ])
         
         return manager
@@ -56,30 +58,62 @@ class SocketHelper {
     
     // MARK: - Connection Testing
     func testConnection(completion: @escaping (Bool, String?) -> Void) {
-        let testSocket = manager.defaultSocket
+        // Test via a health check endpoint rather than socket
+        let url = serverURL.appendingPathComponent("/health")
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 10
         
-        // Set up connection handlers
-        testSocket.on(clientEvent: .connect) { _, _ in
-            print("✅ Socket test connection successful")
-            testSocket.disconnect()
-            completion(true, nil)
-        }
-        
-        testSocket.on(clientEvent: .error) { data, _ in
-            print("❌ Socket test connection error: \(data)")
-            let errorMessage = "Connection error: \(data)"
-            completion(false, errorMessage)
-        }
-        
-        // Set a timeout
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-            if testSocket.status != .connected {
-                testSocket.disconnect()
-                completion(false, "Connection timeout after 5 seconds")
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Health check failed: \(error)")
+                completion(false, "Connection error: \(error.localizedDescription)")
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse,
+               httpResponse.statusCode == 200,
+               let data = data,
+               let responseString = String(data: data, encoding: .utf8) {
+                print("✅ Health check successful: \(responseString)")
+                
+                // If health check passes, also try connecting the socket
+                let socket = self.manager.defaultSocket
+                
+                socket.on(clientEvent: .connect) { _, _ in
+                    print("✅ Socket connection successful")
+                    socket.disconnect()
+                    completion(true, nil)
+                }
+                
+                socket.on(clientEvent: .error) { data, _ in
+                    print("⚠️ Socket connection warning: \(data)")
+                    // Continue anyway if health check succeeded
+                    completion(true, "Server is reachable but socket had issues: \(data)")
+                }
+                
+                // Set a short timeout
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    socket.disconnect()
+                    // Even if socket times out, if health check passed, we're good
+                    completion(true, "Server is reachable but socket connection timed out")
+                }
+                
+                socket.connect()
+            } else {
+                print("❌ Health check failed with unexpected response")
+                completion(false, "Server returned unexpected response")
             }
         }
         
-        // Connect
-        testSocket.connect()
+        task.resume()
+    }
+    
+    // Function to reconnect socket if needed
+    func ensureConnection() {
+        if socket.status != .connected {
+            print("Socket not connected, reconnecting...")
+            socket.connect()
+        }
     }
 }
